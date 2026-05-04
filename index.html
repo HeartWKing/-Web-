@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>临沂大学校园三维模型展示系统</title>
+    <!-- 引入外部库 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    
+    <!-- Cesium CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.118.0/Cesium.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cesium/1.118.0/Widgets/widgets.css" rel="stylesheet">
+    
+    <!-- Tailwind配置 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#0A4DA2',
+                        secondary: '#F0F4F8',
+                        accent: '#3B82F6',
+                        dark: '#1E293B',
+                        light: '#F8FAFC'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'custom': '0 4px 6px -1px rgba(10, 77, 162, 0.1), 0 2px 4px -1px rgba(10, 77, 162, 0.06)',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- 自定义样式 -->
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .transition-all-300 { transition: all 300ms ease-in-out; }
+            .panel-height { height: calc(100vh - 2rem); }
+            .map-height { height: calc(100vh - 2rem); }
+            .btn-active { @apply bg-primary text-white; }
+            .btn-inactive { @apply bg-white text-primary border border-primary; }
+        }
+    </style>
+    
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; }
+        #cesiumContainer { width: 100%; height: 100%; background-color: #F0F4F8; }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #0A4DA2;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(240, 244, 248, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .info-popup {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1001;
+            max-width: 300px;
+            display: none;
+        }
+        .info-popup h3 { margin-top: 0; color: #0A4DA2; }
+        .info-popup .close-btn {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            cursor: pointer;
+            font-size: 18px;
+            color: #666;
+        }
+    </style>
+</head>
+<body class="bg-secondary">
+    <div class="container mx-auto p-4">
+        <!-- 顶部标题栏 -->
+        <header class="flex justify-between items-center mb-4">
+            <h1 class="text-2xl font-bold text-primary">临沂大学校园三维模型展示系统</h1>
+            <div class="flex items-center space-x-2">
+                <span class="text-sm text-gray-600">当前场景:</span>
+                <span id="currentScene" class="font-semibold text-primary">科技大楼</span>
+            </div>
+        </header>
+        
+        <div class="flex gap-4">
+            <!-- 左侧控制面板 -->
+            <div class="w-64 bg-white rounded-lg shadow-custom panel-height p-4 flex flex-col overflow-y-auto">
+                <!-- 场景切换 -->
+                <div class="mb-6">
+                    <h2 class="text-lg font-semibold text-dark mb-3">场景切换</h2>
+                    <div class="flex flex-col space-y-2">
+                        <button id="btn-tech" class="btn-active py-2 px-4 rounded-md transition-all-300 flex items-center justify-between">
+                            <span>科技大楼</span>
+                            <i class="fa fa-building-o"></i>
+                        </button>
+                        <button id="btn-history" class="btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between">
+                            <span>校史馆</span>
+                            <i class="fa fa-university"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 模型分类 -->
+                <div class="mb-6">
+                    <h2 class="text-lg font-semibold text-dark mb-3">模型分类</h2>
+                    <div class="flex flex-col space-y-2">
+                        <button id="btn-all" class="btn-active py-2 px-4 rounded-md transition-all-300 flex items-center justify-between">
+                            <span>总模型</span>
+                            <i class="fa fa-cubes"></i>
+                        </button>
+                        <button id="btn-building" class="btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between">
+                            <span>建筑</span>
+                            <i class="fa fa-building"></i>
+                        </button>
+                        <button id="btn-ground" class="btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between">
+                            <span>地面</span>
+                            <i class="fa fa-map-o"></i>
+                        </button>
+                        <button id="btn-vegetation" class="btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between">
+                            <span>植被</span>
+                            <i class="fa fa-leaf"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 测量工具 -->
+                <div class="mb-6">
+                    <h2 class="text-lg font-semibold text-dark mb-3">测量工具</h2>
+                    <div class="flex flex-col space-y-2">
+                        <button id="btn-measure" class="btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between">
+                            <span>距离测量</span>
+                            <i class="fa fa-ruler"></i>
+                        </button>
+                        <button id="btn-clear" class="btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between">
+                            <span>清除测量</span>
+                            <i class="fa fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 视角切换 -->
+                <div class="mb-6">
+                    <h2 class="text-lg font-semibold text-dark mb-3">视角切换</h2>
+                    <div class="flex flex-col space-y-2">
+                        <button id="btn-top" class="btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between">
+                            <span>俯视图</span>
+                            <i class="fa fa-eye"></i>
+                        </button>
+                        <button id="btn-side" class="btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between">
+                            <span>侧视图</span>
+                            <i class="fa fa-eye-slash"></i>
+                        </button>
+                        <button id="btn-reset" class="btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between">
+                            <span>重置视角</span>
+                            <i class="fa fa-home"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 操作指南 -->
+                <div class="mt-auto">
+                    <h2 class="text-lg font-semibold text-dark mb-3">操作指南</h2>
+                    <ul class="text-sm text-gray-600 space-y-2">
+                        <li class="flex items-start">
+                            <i class="fa fa-mouse-pointer mt-1 mr-2 text-primary"></i>
+                            <span>左键拖拽: 旋转场景</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fa fa-arrows mt-1 mr-2 text-primary"></i>
+                            <span>右键拖拽: 平移场景</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fa fa-search mt-1 mr-2 text-primary"></i>
+                            <span>滚轮: 缩放场景</span>
+                        </li>
+                        <li class="flex items-start">
+                            <i class="fa fa-hand-pointer-o mt-1 mr-2 text-primary"></i>
+                            <span>点击模型: 查看详情</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- 右侧3D场景展示区 -->
+            <div class="flex-1 bg-white rounded-lg shadow-custom map-height relative overflow-hidden">
+                <div id="cesiumContainer"></div>
+                <div id="loadingOverlay" class="loading-overlay">
+                    <div class="flex flex-col items-center">
+                        <div class="spinner mb-4"></div>
+                        <p class="text-primary font-medium">加载场景中...</p>
+                        <p class="text-sm text-gray-500 mt-2">校史馆模型较大，首次加载可能需要2-3分钟</p>
+                    </div>
+                </div>
+                
+                <!-- 信息弹窗 -->
+                <div id="infoPopup" class="info-popup">
+                    <span class="close-btn" onclick="document.getElementById('infoPopup').style.display='none'">&times;</span>
+                    <h3 id="popupTitle">模型信息</h3>
+                    <p id="popupContent"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cesium核心逻辑 -->
+    <script>
+        // 1. 配置访问令牌
+        Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlNzlmOGZiNS1mMDc3LTRhNDEtYmM4OS1iNTA5NThlYTRmMzIiLCJpZCI6NDI3MTQxLCJzdWIiOiJ3YW5neGluMjQ2MDYyMTMyOCIsImlzcyI6Imh0dHBzOi8vaW9uLmNlc2l1bS5jb20iLCJhdWQiOiLmr5Xorr4iLCJpYXQiOjE3Nzc5MTM1MTR9.tud7dPUxJ7UmA7haBdeUZEgwldzNbJUo_up3eP03Gus';
+        
+        // 2. 场景配置 - 总模型使用Cesium Ion Asset ID
+        const sceneConfigs = {
+            tech: {
+                name: "科技大楼",
+                description: "临沂大学科技大楼是学校的重要教学科研场所，总建筑面积约5万平方米。",
+                position: { lng: 118.352, lat: 35.053, height: 50 },
+                assets: {
+                    // ✅ 使用Cesium Ion Asset ID (科技大楼)
+                    total: { id: 4709570, type: "3dtiles" },
+                    building: { id: 4709416, type: "3dtiles" },
+                    ground: { id: 4709415, type: "3dtiles" },
+                    vegetation: { id: 4709417, type: "3dtiles" }
+                }
+            },
+            history: {
+                name: "校史馆",
+                description: "临沂大学校史馆展示了学校的发展历程和重要成就，是校园文化的重要载体。",
+                position: { lng: 118.353, lat: 35.054, height: 50 },
+                assets: {
+                    // ✅ 使用Cesium Ion Asset ID (校史馆)
+                    total: { id: 4709571, type: "3dtiles" },
+                    building: { id: 4709419, type: "3dtiles" },
+                    ground: { id: 4709418, type: "3dtiles" },
+                    vegetation: { id: 4709420, type: "3dtiles" }
+                }
+            }
+        };
+        
+        // 3. 全局变量
+        let currentScene = "tech";
+        let currentCategory = "total";
+        let viewer = null;
+        let currentTileset = null;
+        let currentModelPrimitive = null;
+        let currentEntity = null;
+        let measuring = false;
+        let measurePoints = [];
+        let measureEntities = [];
+        
+        // 4. 初始化Cesium Viewer
+        function initCesium() {
+            console.log("🚀 初始化Cesium...");
+            
+            viewer = new Cesium.Viewer('cesiumContainer', {
+                imageryProvider: new Cesium.SingleTileImageryProvider({
+                    url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+                }),
+                requestRenderMode: true,
+                maximumRenderTimeChange: Infinity,
+                baseLayerPicker: false,
+                navigationHelpButton: false,
+                infoBox: false,
+                selectionIndicator: false,
+                sceneModePicker: false,
+                fullscreenButton: false,
+                homeButton: false,
+                animation: false,
+                timeline: false,
+                geocoder: false
+            });
+            
+            viewer.scene.globe.show = false;
+            viewer.cesiumWidget.creditContainer.style.display = "none";
+            
+            // 优化鼠标交互
+            viewer.scene.screenSpaceCameraController.enableRotate = true;
+            viewer.scene.screenSpaceCameraController.enableTranslate = true;
+            viewer.scene.screenSpaceCameraController.enableZoom = true;
+            viewer.scene.screenSpaceCameraController.enableTilt = true;
+            viewer.scene.screenSpaceCameraController.enableLook = true;
+            viewer.scene.screenSpaceCameraController.inertiaSpin = 0.9;
+            viewer.scene.screenSpaceCameraController.inertiaTranslate = 0.9;
+            viewer.scene.screenSpaceCameraController.inertiaZoom = 0.8;
+            viewer.scene.screenSpaceCameraController.minimumZoomDistance = 1;
+            viewer.scene.screenSpaceCameraController.maximumZoomDistance = 2000;
+            
+            loadModel(currentScene, currentCategory);
+            bindEvents();
+            bindModelClick();
+        }
+        
+        // 5. 加载模型 - 统一使用Cesium Ion
+        async function loadModel(sceneId, categoryId) {
+            console.log(`🔄 加载模型: ${sceneId} - ${categoryId}`);
+            document.getElementById("loadingOverlay").style.display = "flex";
+            
+            // 清理之前的模型
+            cleanupModels();
+            
+            const scene = sceneConfigs[sceneId];
+            const asset = scene.assets[categoryId];
+            
+            if (!asset) {
+                console.error("❌ 找不到资产配置");
+                document.getElementById("loadingOverlay").style.display = "none";
+                return;
+            }
+            
+            console.log(`📦 资产类型: ${asset.type}, ID: ${asset.id}`);
+            
+            const timeoutId = setTimeout(() => {
+                document.getElementById("loadingOverlay").style.display = "none";
+                console.warn("⏰ 加载超时");
+            }, 180000);
+            
+            try {
+                if (asset.type === "3dtiles") {
+                    // ✅ 统一使用Cesium3DTileset.fromIonAssetId加载
+                    console.log("🏗️ 加载3D Tiles...");
+                    currentTileset = await Cesium.Cesium3DTileset.fromIonAssetId(asset.id);
+                    viewer.scene.primitives.add(currentTileset);
+                    
+                    // 等待模型加载完成
+                    await currentTileset.readyPromise;
+                    
+                    // 计算边界并调整相机
+                    const boundingSphere = currentTileset.boundingSphere;
+                    if (boundingSphere) {
+                        viewer.camera.viewBoundingSphere(boundingSphere, new Cesium.HeadingPitchRange(
+                            Cesium.Math.toRadians(45),
+                            Cesium.Math.toRadians(-30),
+                            boundingSphere.radius * 2
+                        ));
+                        viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+                        console.log("✅ 3D Tiles加载成功");
+                    } else {
+                        // 如果无法获取边界球，使用默认视角
+                        viewer.camera.setView({
+                            destination: Cesium.Cartesian3.fromDegrees(
+                                scene.position.lng,
+                                scene.position.lat,
+                                scene.position.height + 200
+                            ),
+                            orientation: {
+                                heading: Cesium.Math.toRadians(45),
+                                pitch: Cesium.Math.toRadians(-30),
+                                roll: 0.0
+                            }
+                        });
+                        console.log("✅ 3D Tiles加载成功（使用默认视角）");
+                    }
+                }
+                
+                document.getElementById("currentScene").textContent = scene.name;
+                
+            } catch (error) {
+                console.error('❌ 加载失败:', error);
+                alert(`模型加载失败: ${error.message}\n\n请检查:\n1. Asset ID是否正确\n2. 模型是否已处理完成\n3. 网络连接是否正常\n4. Token是否有效`);
+            } finally {
+                clearTimeout(timeoutId);
+                document.getElementById("loadingOverlay").style.display = "none";
+            }
+        }
+        
+        // 清理模型
+        function cleanupModels() {
+            if (currentTileset) {
+                viewer.scene.primitives.remove(currentTileset);
+                currentTileset = null;
+            }
+            if (currentModelPrimitive) {
+                viewer.scene.primitives.remove(currentModelPrimitive);
+                currentModelPrimitive = null;
+            }
+            if (currentEntity) {
+                viewer.entities.remove(currentEntity);
+                currentEntity = null;
+            }
+            viewer.trackedEntity = undefined;
+        }
+        
+        // 6. 辅助函数
+        function getCategoryName(category) {
+            const names = {
+                "total": "总模型",
+                "building": "建筑",
+                "ground": "地面",
+                "vegetation": "植被"
+            };
+            return names[category] || category;
+        }
+        
+        function updateButtonStates() {
+            document.getElementById("btn-tech").className = currentScene === "tech" 
+                ? "btn-active py-2 px-4 rounded-md transition-all-300 flex items-center justify-between" 
+                : "btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between";
+            document.getElementById("btn-history").className = currentScene === "history" 
+                ? "btn-active py-2 px-4 rounded-md transition-all-300 flex items-center justify-between" 
+                : "btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between";
+            
+            document.getElementById("btn-all").className = currentCategory === "total" 
+                ? "btn-active py-2 px-4 rounded-md transition-all-300 flex items-center justify-between" 
+                : "btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between";
+            document.getElementById("btn-building").className = currentCategory === "building" 
+                ? "btn-active py-2 px-4 rounded-md transition-all-300 flex items-center justify-between" 
+                : "btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between";
+            document.getElementById("btn-ground").className = currentCategory === "ground" 
+                ? "btn-active py-2 px-4 rounded-md transition-all-300 flex items-center justify-between" 
+                : "btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between";
+            document.getElementById("btn-vegetation").className = currentCategory === "vegetation" 
+                ? "btn-active py-2 px-4 rounded-md transition-all-300 flex items-center justify-between" 
+                : "btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between";
+        }
+        
+        // 7. 绑定按钮事件
+        function bindEvents() {
+            document.getElementById("btn-tech").addEventListener("click", () => {
+                currentScene = "tech";
+                updateButtonStates();
+                loadModel(currentScene, currentCategory);
+            });
+            
+            document.getElementById("btn-history").addEventListener("click", () => {
+                currentScene = "history";
+                updateButtonStates();
+                loadModel(currentScene, currentCategory);
+            });
+            
+            document.getElementById("btn-all").addEventListener("click", () => {
+                currentCategory = "total";
+                updateButtonStates();
+                loadModel(currentScene, currentCategory);
+            });
+            
+            document.getElementById("btn-building").addEventListener("click", () => {
+                currentCategory = "building";
+                updateButtonStates();
+                loadModel(currentScene, currentCategory);
+            });
+            
+            document.getElementById("btn-ground").addEventListener("click", () => {
+                currentCategory = "ground";
+                updateButtonStates();
+                loadModel(currentScene, currentCategory);
+            });
+            
+            document.getElementById("btn-vegetation").addEventListener("click", () => {
+                currentCategory = "vegetation";
+                updateButtonStates();
+                loadModel(currentScene, currentCategory);
+            });
+            
+            document.getElementById("btn-measure").addEventListener("click", () => {
+                measuring = !measuring;
+                document.getElementById("btn-measure").className = measuring 
+                    ? "btn-active py-2 px-4 rounded-md transition-all-300 flex items-center justify-between" 
+                    : "btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between";
+                
+                if (measuring) {
+                    alert("点击地图开始测量，双击结束");
+                    startMeasure();
+                } else {
+                    stopMeasure();
+                }
+            });
+            
+            document.getElementById("btn-clear").addEventListener("click", () => {
+                clearMeasure();
+            });
+            
+            document.getElementById("btn-top").addEventListener("click", () => {
+                if (currentTileset) {
+                    const boundingSphere = currentTileset.boundingSphere;
+                    if (boundingSphere) {
+                        viewer.camera.viewBoundingSphere(boundingSphere, new Cesium.HeadingPitchRange(
+                            Cesium.Math.toRadians(0),
+                            Cesium.Math.toRadians(-90),
+                            boundingSphere.radius * 2
+                        ));
+                    }
+                }
+            });
+            
+            document.getElementById("btn-side").addEventListener("click", () => {
+                if (currentTileset) {
+                    const boundingSphere = currentTileset.boundingSphere;
+                    if (boundingSphere) {
+                        viewer.camera.viewBoundingSphere(boundingSphere, new Cesium.HeadingPitchRange(
+                            Cesium.Math.toRadians(270),
+                            Cesium.Math.toRadians(-15),
+                            boundingSphere.radius * 2
+                        ));
+                    }
+                }
+            });
+            
+            document.getElementById("btn-reset").addEventListener("click", () => {
+                loadModel(currentScene, currentCategory);
+            });
+        }
+        
+        // 8. 绑定模型点击事件
+        function bindModelClick() {
+            viewer.screenSpaceEventHandler.setInputAction(function(click) {
+                const pickedFeature = viewer.scene.pick(click.position);
+                if (Cesium.defined(pickedFeature)) {
+                    const scene = sceneConfigs[currentScene];
+                    const categoryName = getCategoryName(currentCategory);
+                    
+                    document.getElementById("popupTitle").textContent = `${scene.name} - ${categoryName}`;
+                    document.getElementById("popupContent").innerHTML = `
+                        <p><strong>场景：</strong>${scene.name}</p>
+                        <p><strong>分类：</strong>${categoryName}</p>
+                        <p><strong>描述：</strong>${scene.description}</p>
+                    `;
+                    document.getElementById("infoPopup").style.display = "block";
+                }
+            }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+        }
+        
+        // 9. 测量功能
+        function startMeasure() {
+            viewer.screenSpaceEventHandler.setInputAction(function(click) {
+                const cartesian = viewer.camera.pickEllipsoid(click.position);
+                if (cartesian) {
+                    measurePoints.push(cartesian);
+                    
+                    const point = viewer.entities.add({
+                        position: cartesian,
+                        point: {
+                            pixelSize: 8,
+                            color: Cesium.Color.RED
+                        }
+                    });
+                    measureEntities.push(point);
+                    
+                    if (measurePoints.length >= 2) {
+                        const start = measurePoints[measurePoints.length - 2];
+                        const end = measurePoints[measurePoints.length - 1];
+                        const distance = Cesium.Cartesian3.distance(start, end);
+                        
+                        const line = viewer.entities.add({
+                            polyline: {
+                                positions: [start, end],
+                                width: 3,
+                                material: Cesium.Color.YELLOW
+                            }
+                        });
+                        measureEntities.push(line);
+                        
+                        const label = viewer.entities.add({
+                            position: Cesium.Cartesian3.midpoint(start, end, new Cesium.Cartesian3()),
+                            label: {
+                                text: `${distance.toFixed(2)} 米`,
+                                font: '14px sans-serif',
+                                fillColor: Cesium.Color.WHITE,
+                                outlineColor: Cesium.Color.BLACK,
+                                outlineWidth: 2,
+                                style: Cesium.LabelStyle.FILL_AND_OUTLINE
+                            }
+                        });
+                        measureEntities.push(label);
+                    }
+                }
+            }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+            
+            viewer.screenSpaceEventHandler.setInputAction(function() {
+                measuring = false;
+                document.getElementById("btn-measure").className = "btn-inactive py-2 px-4 rounded-md transition-all-300 flex items-center justify-between";
+                stopMeasure();
+            }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+        }
+        
+        function stopMeasure() {
+            viewer.screenSpaceEventHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK);
+            viewer.screenSpaceEventHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+        }
+        
+        function clearMeasure() {
+            measurePoints = [];
+            measureEntities.forEach(entity => {
+                viewer.entities.remove(entity);
+            });
+            measureEntities = [];
+        }
+        
+        window.addEventListener('load', initCesium);
+    </script>
+</body>
+</html>
